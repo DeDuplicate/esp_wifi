@@ -1,0 +1,89 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+
+// הגדר כאן את ה-ID של המכשיר
+#define DEVICE_ID 12345
+
+const char* ssid = "wifi";
+const char* password = "******";
+const char* serverName = "https://dev-0.malpak.site/api/getAlert.php";
+
+const int buzzerPin = 26;  // חבר את הזמזם לפין 26
+
+unsigned long lastTime = 0;
+unsigned long timerDelay = 5000;  // בדוק כל 5 שניות
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(buzzerPin, OUTPUT);
+  
+  WiFi.begin(ssid, password);
+  Serial.println("Connecting to WiFi");
+  while(WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Connected to WiFi network with IP Address: ");
+  Serial.println(WiFi.localIP());
+  
+  Serial.print("Device ID: ");
+  Serial.println(DEVICE_ID);
+}
+
+void loop() {
+  if ((millis() - lastTime) > timerDelay) {
+    if(WiFi.status() == WL_CONNECTED){
+      String url = String(serverName) + "?device_id=" + String(DEVICE_ID);
+      HTTPClient http;
+      
+      http.begin(url);
+      int httpResponseCode = http.GET();
+      
+      if (httpResponseCode > 0) {
+        String payload = http.getString();
+        DynamicJsonDocument doc(1024);
+        deserializeJson(doc, payload);
+        
+        String location = doc["message"]["location"];
+        String alertStatus = doc["message"]["alert"];
+        int alertTime = doc["message"]["alert_time"].as<int>(); // קריאת זמן ההתרעה מה-JSON
+        
+        Serial.println("========== Alert Status ==========");
+        Serial.print("Device ID: ");
+        Serial.println(DEVICE_ID);
+        Serial.print("Location: ");
+        Serial.println(location);
+        Serial.print("Alert Status: ");
+        Serial.println(alertStatus);
+        Serial.print("Alert Time: ");
+        Serial.print(alertTime);
+        Serial.println(" seconds");
+        
+        if (alertStatus == "yes") {
+          Serial.println("!!! ALERT DETECTED !!!");
+          Serial.println("Triggering alert mechanism...");
+          digitalWrite(buzzerPin, HIGH);
+          delay(alertTime * 1000); // המרה לאלפיות שנייה
+          digitalWrite(buzzerPin, LOW);
+          Serial.println("Alert triggered! Buzzer activated.");
+          Serial.print("Buzzer was active for ");
+          Serial.print(alertTime);
+          Serial.println(" seconds.");
+        } else {
+          Serial.println("No active alert for this location.");
+        }
+        
+        Serial.println("===================================");
+      } else {
+        Serial.print("Error code: ");
+        Serial.println(httpResponseCode);
+      }
+      http.end();
+    } else {
+      Serial.println("WiFi Disconnected");
+    }
+    lastTime = millis();
+  }
+}
